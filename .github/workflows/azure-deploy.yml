@@ -46,8 +46,9 @@ jobs:
 
       - name: Prepare deployment package
         run: |
-          php artisan config:cache
-          php artisan route:cache
+          php artisan config:clear
+          php artisan route:clear
+          php artisan view:clear
           zip -r deploy.zip . -x "*.git*" "node_modules/*" "storage/logs/*" "storage/framework/cache/*"
 
       - name: Deploy to Azure Web App

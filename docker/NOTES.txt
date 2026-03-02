@@ -1,0 +1,1 @@
+NOTE: generate APP_KEY via php artisan key:generate --show\n

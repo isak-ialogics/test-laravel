@@ -68,6 +68,24 @@ class RuntimePolicyTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(marker.exists())
 
+    def test_entrypoint_preserves_flags_only_fpm_command_after_guard(self):
+        entry = ROOT / 'docker/php-entrypoint.sh'
+        with tempfile.TemporaryDirectory() as temp:
+            sandbox = Path(temp)
+            fpm = sandbox / 'php-fpm'
+            fpm.write_text('#!/bin/sh\nprintf "FPM_ARG=%s\\n" "$@"\n', encoding='utf-8')
+            fpm.chmod(0o755)
+            launcher = ('PATH="$(cd "$2" && pwd):$PATH"; export PATH; '
+                        '/usr/local/bin/php() { return "$FAKE_PHP_STATUS"; }; '
+                        '. "$1" -v')
+            for status in (0, 78, 42):
+                with self.subTest(status=status):
+                    result = subprocess.run(['bash', '-c', launcher, '_', str(entry), str(sandbox)],
+                                            env={**os.environ, 'FAKE_PHP_STATUS': str(status)},
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertEqual(result.stdout, 'FPM_ARG=-v\n' if status == 0 else '')
+
 
 if __name__ == '__main__':
     unittest.main()

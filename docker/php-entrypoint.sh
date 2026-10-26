@@ -11,4 +11,8 @@ if [ "$status" -ne 0 ]; then
     fi
     exit "$status"
 fi
+# Preserve the official FPM image's flags-only command behavior after checking PHP.
+if [ "${1#-}" != "$1" ]; then
+    set -- php-fpm "$@"
+fi
 exec "$@"

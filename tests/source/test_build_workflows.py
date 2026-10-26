@@ -53,7 +53,9 @@ class WorkflowTest(unittest.TestCase):
         steps = workflow('php-security-pr.yml')['jobs']['verify']['steps']
         script = next(s['run'] for s in steps if s.get('name', '').startswith('Read back actual'))
         stub = ('docker() { if [[ "$*" == *"--entrypoint php-fpm"* ]]; then '
-                'printf "PHP 8.3.36\\n"; return 42; fi; return 0; }\n')
+                'printf "PHP 8.3.36\\n"; return 42; fi; '
+                'if [[ "$*" == *"local/test-laravel-app:ci -v"* ]]; then '
+                'printf "PHP 8.3.36\\n"; fi; return 0; }\n')
         failure = subprocess.run(['bash', '-e', '-c', stub + script + '\necho DOWNSTREAM_MARKER'],
                                  text=True, capture_output=True)
         self.assertEqual(failure.returncode, 42, failure.stderr)
@@ -64,6 +66,24 @@ class WorkflowTest(unittest.TestCase):
                                      text=True, capture_output=True)
         self.assertEqual(unprotected.returncode, 0, unprotected.stderr)
         self.assertIn('DOWNSTREAM_MARKER', unprotected.stdout)
+
+    def test_native_flags_only_probe_uses_guard_and_propagates_producer_failure(self):
+        steps = workflow('php-security-pr.yml')['jobs']['verify']['steps']
+        script = next(s['run'] for s in steps if s.get('name', '').startswith('Read back actual'))
+        probes = [line for line in script.splitlines()
+                  if 'local/test-laravel-app:ci -v' in line and '--entrypoint' not in line]
+        self.assertEqual(len(probes), 1, 'native flags-only FPM entrypoint coverage missing')
+        self.assertNotIn('--entrypoint', probes[0])
+        for required in ('--network none', '--read-only', '--tmpfs /tmp:', "grep -F 'PHP 8.3.36'"):
+            self.assertIn(required, probes[0])
+        stub = ('docker() { if [[ "$*" == *"--entrypoint php-fpm"* ]]; then '
+                'printf "PHP 8.3.36\\n"; return 0; fi; '
+                'if [[ "$*" == *"local/test-laravel-app:ci -v"* ]]; then '
+                'printf "PHP 8.3.36\\n"; return 42; fi; return 0; }\n')
+        failure = subprocess.run(['bash', '-e', '-c', stub + script + '\necho DOWNSTREAM_MARKER'],
+                                 text=True, capture_output=True)
+        self.assertEqual(failure.returncode, 42, failure.stderr)
+        self.assertNotIn('DOWNSTREAM_MARKER', failure.stdout)
 
     def test_manual_azure_setup_refreshes_and_checks_actual_patch(self):
         azure = workflow('azure-deploy.yml')

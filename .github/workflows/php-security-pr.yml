@@ -80,6 +80,7 @@ jobs:
           docker run --rm --network none --entrypoint php local/test-laravel-app:ci -r 'exit(PHP_VERSION_ID === 80336 && extension_loaded("intl") && extension_loaded("mbstring") && extension_loaded("zip") && extension_loaded("pdo_sqlite") && ini_get("session.upload_progress.enabled") === "0" ? 0 : 78);'
           docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --entrypoint php-fpm local/test-laravel-app:ci -v 2>&1 | grep -F 'PHP 8.3.36'
           docker run --rm --network none local/test-laravel-app:ci php -r 'exit(PHP_VERSION_ID === 80336 ? 0 : 78);'
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m local/test-laravel-app:ci -v 2>&1 | grep -F 'PHP 8.3.36'
 
       - name: Reject a fixed but unapproved PHP minor before executing command
         run: |

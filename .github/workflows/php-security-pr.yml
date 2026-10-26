@@ -1,0 +1,92 @@
+name: PHP security source verification
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php-security-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout source (read only)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        env:
+          update: true
+        with:
+          php-version: '8.3.36'
+          extensions: intl, mbstring, pdo_sqlite, sqlite3, sodium, zip
+          coverage: none
+
+      - name: Check actual setup-php interpreter
+        run: |
+          php -r 'exit(PHP_VERSION_ID === 80336 ? 0 : 78);'
+
+      - name: Source security contracts
+        run: |
+          python3 -m venv "$RUNNER_TEMP/php-source-venv"
+          "$RUNNER_TEMP/php-source-venv/bin/python" -m pip install --disable-pip-version-check PyYAML==6.0.3
+          "$RUNNER_TEMP/php-source-venv/bin/python" -m unittest discover -s tests/source -v
+
+      - name: Set up portable official Docker ignore matcher test
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: '1.26.10'
+          cache: false
+
+      - name: Verify actual Docker context matcher semantics
+        run: |
+          cd tests/source/context-matcher
+          go test -mod=readonly -v ./...
+
+      - name: Validate, audit and install exact Composer lock
+        run: |
+          composer validate --strict
+          composer audit --locked
+          composer audit --locked --no-dev
+          composer install --prefer-dist --no-interaction --no-progress --no-scripts --no-plugins
+          composer check-platform-reqs --no-dev
+
+      - name: Execute framework tests without app integrations
+        run: |
+          APP_KEY="base64:$(openssl rand -base64 32)" \
+          APP_ENV=testing DB_CONNECTION=sqlite DB_DATABASE=:memory: \
+          MAIL_MAILER=array CACHE_STORE=array SESSION_DRIVER=array \
+          php vendor/bin/phpunit
+
+      - name: Build local vendor and application images without publishing
+        run: |
+          docker build --target vend --file docker/app.Dockerfile --tag local/test-laravel-vend:ci .
+          docker build --file docker/app.Dockerfile --tag local/test-laravel-app:ci .
+          docker build --file docker/web.Dockerfile --tag local/test-laravel-web:ci .
+
+      - name: Read back actual patched image interpreters, extensions and startup
+        run: |
+          set -o pipefail
+          docker image inspect --format '{{.Id}}' local/test-laravel-vend:ci
+          docker image inspect --format '{{.Id}}' local/test-laravel-app:ci
+          docker run --rm --network none --entrypoint php local/test-laravel-vend:ci -r 'exit(PHP_VERSION_ID === 80336 && extension_loaded("intl") && extension_loaded("zip") && extension_loaded("pdo_sqlite") ? 0 : 78);'
+          docker run --rm --network none --entrypoint php local/test-laravel-app:ci -r 'exit(PHP_VERSION_ID === 80336 && extension_loaded("intl") && extension_loaded("mbstring") && extension_loaded("zip") && extension_loaded("pdo_sqlite") && ini_get("session.upload_progress.enabled") === "0" ? 0 : 78);'
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --entrypoint php-fpm local/test-laravel-app:ci -v 2>&1 | grep -F 'PHP 8.3.36'
+          docker run --rm --network none local/test-laravel-app:ci php -r 'exit(PHP_VERSION_ID === 80336 ? 0 : 78);'
+
+      - name: Reject a fixed but unapproved PHP minor before executing command
+        run: |
+          set -o pipefail
+          status=0
+          docker run --rm --network none --mount "type=bind,src=$PWD/docker/php-entrypoint.sh,dst=/guard,readonly" --entrypoint /bin/sh php:8.5.12-cli-alpine@sha256:e899a75c775804e5466dbd9c96b31f8b6c6ae2ddb053a8466223a0c32992ff8e /guard php -r 'exit(99);' || status=$?
+          if [ "$status" -ne 78 ]; then
+            echo 'Wrong-runtime guard did not return its exact refusal code.' >&2
+            exit 1
+          fi

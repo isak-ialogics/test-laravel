@@ -1,5 +1,7 @@
 <?php
 
+require __DIR__.'/../bootstrap/php-runtime.php';
+
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 

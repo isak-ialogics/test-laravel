@@ -7,6 +7,32 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## PHP security source boundary
+
+The app's PHP execution floor is a patched PHP 8.3.36, 8.4.27, or 8.5.12
+branch. The app image builds its Composer vendor tree with digest-pinned
+PHP 8.3.36 CLI Alpine and runs digest-pinned PHP 8.3.36 FPM Alpine. Its
+Composer image is only a COPY-only PHAR donor. Build and startup checks refuse
+the wrong image interpreter; `artisan` and `public/index.php` reject unsupported
+local interpreters before Laravel autoload/bootstrap. The app image disables
+session upload progress at PHP startup, not through a per-request override.
+For development, install from `composer.lock` with a supported patched PHP and
+run the source and framework tests. Neither a PHP-level guard nor a green source
+test repairs an already-running vulnerable PHP process: replace and read back
+every real engine/worker before allowing traffic.
+
+The pull-request PHP security workflow is read-only and builds local test images;
+it never publishes or deploys them. The existing main push workflow still
+publishes mutable `:latest` app and web images, so merging to main is a
+publication decision, not an inert test. The Azure workflow is still manual-only:
+its patched build interpreter does **not** prove that the Azure server PHP is
+patched. Azure runtime configuration and any deployed instance need separate
+readback before activation. The existing stack still references floating images
+and has an SQLite configuration without a declared durable volume; reconcile
+target, backups, data and consumers before any rollout. Image provenance,
+registry publication, running-role identity and live CLI/FPM/version/config
+readback remain independent release gates.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

@@ -16,10 +16,16 @@ jobs:
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
+        env:
+          update: true
         with:
-          php-version: '8.3'
+          php-version: '8.3.36'
           extensions: mbstring, xml, ctype, json, bcmath, curl, fileinfo, sqlite3
           coverage: none
+
+      - name: Verify actual deployment-package PHP
+        run: |
+          php -r 'exit(PHP_VERSION_ID === 80336 ? 0 : 78);'
 
       - name: Cache Composer
         uses: actions/cache@v4
